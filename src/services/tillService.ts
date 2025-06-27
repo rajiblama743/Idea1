@@ -176,7 +176,10 @@ class TillService {
   }
 
   // Calculation Logic
-  calculateSession(session: Session, inputs: CalculationInput[]): CalculationResult {
+  calculateSession(session: Session, inputs: CalculationInput[], sessionResults?: CalculationResult[]): CalculationResult {
+    console.log('calculateSession: Starting calculation for session:', session.name, 'ID:', session.id);
+    console.log('calculateSession: Session formula:', session.formula);
+    
     const calculateSubSession = (subSession: SubSession): CalculationResult => {
       // Find input value for this sub-session
       const input = inputs.find(input => 
@@ -187,7 +190,7 @@ class TillService {
 
       // Apply formula if exists
       if (subSession.formula) {
-        calculatedValue = this.applyFormula(subSession.formula, inputs, session);
+        calculatedValue = this.applyFormula(subSession.formula, inputs, session, sessionResults);
       }
 
       // Calculate sub-sessions recursively
@@ -204,16 +207,22 @@ class TillService {
       };
     };
 
-    // Calculate main session
+    // Calculate all sub-sessions
+    const subResults = session.subSessions.map(subSession => calculateSubSession(subSession));
+    
+    // Find input value for this session
     const input = inputs.find(input => input.sessionId === session.id && !input.subSessionId);
     let calculatedValue = input?.value || 0;
 
+    // Apply formula if exists
     if (session.formula) {
-      calculatedValue = this.applyFormula(session.formula, inputs, session);
+      console.log('calculateSession: Applying formula to session:', session.name);
+      calculatedValue = this.applyFormula(session.formula, inputs, session, sessionResults);
+      console.log('calculateSession: Formula result for session:', session.name, '=', calculatedValue);
     }
 
-    const subResults = session.subSessions.map(subSession => calculateSubSession(subSession));
-
+    console.log('calculateSession: Final result for session:', session.name, '=', calculatedValue);
+    
     return {
       sessionId: session.id,
       name: session.name,
@@ -224,39 +233,34 @@ class TillService {
     };
   }
 
-  private applyFormula(formula: Formula, inputs: CalculationInput[], session: Session): number {
-    console.log('Applying formula:', formula);
-    console.log('Inputs:', inputs);
+  private applyFormula(formula: Formula, inputs: CalculationInput[], session: Session, sessionResults?: CalculationResult[]): number {
+    console.log('applyFormula: Starting formula application for session:', session.name);
+    console.log('applyFormula: Formula operands:', formula.operands);
     
     const getValue = (operand: FormulaOperand): number => {
-      console.log('Getting value for operand:', operand);
-      
+      console.log('applyFormula: Processing operand:', operand);
       switch (operand.type) {
         case 'input':
           const inputValue = parseFloat(operand.value) || 0;
-          console.log('Input value:', inputValue);
+          console.log('applyFormula: Input operand value:', inputValue);
           return inputValue;
         case 'session':
-          // Find the referenced session and get its calculated value
-          const sessionInput = inputs.find(input => 
-            input.sessionId === operand.value && !input.subSessionId
-          );
-          const sessionValue = sessionInput?.value || 0;
-          console.log('Session value:', sessionValue);
-          return sessionValue;
-        case 'subsession':
-          // Find the referenced sub-session and get its calculated value
-          const subSessionInput = inputs.find(input => 
-            input.sessionId === session.id && input.subSessionId === operand.value
-          );
-          
-          // If we have a direct input value, use it
-          if (subSessionInput) {
-            console.log('Direct sub-session input value:', subSessionInput.value);
-            return subSessionInput.value;
+          console.log('applyFormula: Session operand - looking for session with ID:', operand.value);
+          if (sessionResults) {
+            const referencedSession = sessionResults.find(s => s.sessionId === operand.value);
+            if (referencedSession) {
+              console.log('applyFormula: Found referenced session:', referencedSession.name, 'value:', referencedSession.calculatedValue);
+              return referencedSession.calculatedValue;
+            } else {
+              console.log('applyFormula: Referenced session not found in session results');
+            }
+          } else {
+            console.log('applyFormula: No session results available for session operand');
           }
-          
-          // If no direct input, try to find the sub-session and calculate it
+          return 0;
+        case 'subsession':
+          console.log('applyFormula: Looking for subsession with ID:', operand.value);
+          // Find the sub-session in this session's sub-sessions
           const findAndCalculateSubSession = (subSessions: SubSession[]): number => {
             for (const subSession of subSessions) {
               if (subSession.id === operand.value) {
@@ -267,10 +271,10 @@ class TillService {
                 let calculatedValue = subInput?.value || 0;
                 
                 if (subSession.formula) {
-                  calculatedValue = this.applyFormula(subSession.formula, inputs, session);
+                  calculatedValue = this.applyFormula(subSession.formula, inputs, session, sessionResults);
                 }
                 
-                console.log('Calculated sub-session value:', calculatedValue);
+                console.log('applyFormula: Calculated sub-session value:', calculatedValue);
                 return calculatedValue;
               }
               if (subSession.subSessions.length > 0) {
@@ -282,27 +286,28 @@ class TillService {
           };
           
           const calculatedSubValue = findAndCalculateSubSession(session.subSessions);
-          console.log('Calculated sub-session value:', calculatedSubValue);
+          console.log('applyFormula: Calculated sub-session value:', calculatedSubValue);
           return calculatedSubValue;
         default:
+          console.log('applyFormula: Unknown operand type, returning 0');
           return 0;
       }
     };
 
     if (formula.operands.length === 0) {
-      console.log('No operands in formula, returning 0');
+      console.log('applyFormula: No operands in formula, returning 0');
       return 0;
     }
 
     let result = getValue(formula.operands[0]);
-    console.log('Initial result:', result);
+    console.log('applyFormula: Initial result:', result);
 
     // Apply each operand's operation to the result
     for (let i = 1; i < formula.operands.length; i++) {
       const operand = formula.operands[i];
       const operandValue = getValue(operand);
       
-      console.log(`Applying ${operand.operation} with value ${operandValue} to result ${result}`);
+      console.log(`applyFormula: Applying ${operand.operation} with value ${operandValue} to result ${result}`);
       
       switch (operand.operation) {
         case 'add':
@@ -321,10 +326,10 @@ class TillService {
           break;
       }
       
-      console.log('Result after operation:', result);
+      console.log('applyFormula: Result after operation:', result);
     }
 
-    console.log('Final formula result:', result);
+    console.log('applyFormula: Final formula result:', result);
     return result;
   }
 
@@ -388,21 +393,48 @@ class TillService {
 
   // Calculate a Till (recursively calculates all Sessions and applies Till formula if present)
   calculateTill(till: Till, inputs: CalculationInput[]): CalculationResult {
-    // Calculate all sessions in the till
-    const sessionResults = till.sessions.map(session => this.calculateSession(session, inputs));
+    console.log('calculateTill: Starting calculation for till:', till.name);
+    console.log('calculateTill: Till formula:', till.formula);
+    
+    // First pass: calculate all sessions without cross-references
+    const initialSessionResults = till.sessions.map(session => this.calculateSession(session, inputs));
+    console.log('calculateTill: Initial session results:', initialSessionResults.map(s => ({ id: s.sessionId, name: s.name, value: s.calculatedValue })));
+    
+    // Second pass: recalculate sessions that have formulas referencing other sessions
+    const finalSessionResults: CalculationResult[] = till.sessions.map(session => {
+      if (session.formula && session.formula.operands.some(op => op.type === 'session')) {
+        console.log('calculateTill: Recalculating session with cross-references:', session.name);
+        return this.calculateSession(session, inputs, initialSessionResults);
+      }
+      const existingResult = initialSessionResults.find(s => s.sessionId === session.id);
+      return existingResult!;
+    });
+    
+    console.log('calculateTill: Final session results:', finalSessionResults.map(s => ({ id: s.sessionId, name: s.name, value: s.calculatedValue })));
+    
     let calculatedValue = 0;
     if (till.formula) {
+      console.log('calculateTill: Till has formula, applying it');
       // If Till has a formula, apply it (operands can reference sessions by id)
       const getValue = (operand: FormulaOperand): number => {
+        console.log('calculateTill: Processing operand:', operand);
         switch (operand.type) {
           case 'input':
-            return parseFloat(operand.value) || 0;
+            const inputValue = parseFloat(operand.value) || 0;
+            console.log('calculateTill: Input operand value:', inputValue);
+            return inputValue;
           case 'session':
-            const sessionResult = sessionResults.find(s => s.sessionId === operand.value);
-            return sessionResult ? sessionResult.calculatedValue : 0;
+            console.log('calculateTill: Looking for session with ID:', operand.value);
+            console.log('calculateTill: Available session results:', finalSessionResults.map(s => ({ id: s.sessionId, name: s.name, value: s.calculatedValue })));
+            const sessionResult = finalSessionResults.find(s => s.sessionId === operand.value);
+            console.log('calculateTill: Found session result:', sessionResult);
+            const sessionValue = sessionResult ? sessionResult.calculatedValue : 0;
+            console.log('calculateTill: Session value:', sessionValue);
+            return sessionValue;
           case 'subsession':
+            console.log('calculateTill: Looking for subsession with ID:', operand.value);
             // Find the session containing this subsession
-            for (const sessionResult of sessionResults) {
+            for (const sessionResult of finalSessionResults) {
               const findSub = (subResults: CalculationResult[]): number | null => {
                 for (const sub of subResults) {
                   if (sub.subSessionId === operand.value) return sub.calculatedValue;
@@ -414,18 +446,25 @@ class TillService {
                 return null;
               };
               const found = findSub(sessionResult.subResults || []);
-              if (found !== null) return found;
+              if (found !== null) {
+                console.log('calculateTill: Found subsession value:', found);
+                return found;
+              }
             }
+            console.log('calculateTill: Subsession not found, returning 0');
             return 0;
           default:
+            console.log('calculateTill: Unknown operand type, returning 0');
             return 0;
         }
       };
       if (till.formula.operands.length > 0) {
         calculatedValue = getValue(till.formula.operands[0]);
+        console.log('calculateTill: Initial calculated value:', calculatedValue);
         for (let i = 1; i < till.formula.operands.length; i++) {
           const operand = till.formula.operands[i];
           const operandValue = getValue(operand);
+          console.log(`calculateTill: Applying ${operand.operation} with value ${operandValue} to result ${calculatedValue}`);
           switch (operand.operation) {
             case 'add':
               calculatedValue += operandValue;
@@ -442,18 +481,21 @@ class TillService {
             default:
               break;
           }
+          console.log('calculateTill: Result after operation:', calculatedValue);
         }
       }
     } else {
+      console.log('calculateTill: No formula, summing all session results');
       // If no formula, sum all session results
-      calculatedValue = sessionResults.reduce((sum, s) => sum + s.calculatedValue, 0);
+      calculatedValue = finalSessionResults.reduce((sum: number, s: CalculationResult) => sum + s.calculatedValue, 0);
     }
+    console.log('calculateTill: Final calculated value:', calculatedValue);
     return {
       sessionId: till.id, // Use sessionId for compatibility
       name: till.name,
       calculatedValue,
       formula: till.formula,
-      subResults: sessionResults,
+      subResults: finalSessionResults,
     };
   }
 }

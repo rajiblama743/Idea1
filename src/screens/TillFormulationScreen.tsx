@@ -700,14 +700,31 @@ const TillFormulationScreen: React.FC = () => {
     setShowFormulaModal(true);
   };
 
-  const handleSaveFormula = () => {
+  const handleSaveFormula = async () => {
     if (!formulaTillId) return;
-    setTills(prev => prev.map(till =>
-      till.id === formulaTillId ? { ...till, formula: { operands: formulaOperands } } : till
-    ));
-    setShowFormulaModal(false);
-    setFormulaTillId(null);
-    setFormulaOperands([]);
+    
+    try {
+      // Create the formula object with an id
+      const formula: Formula = {
+        id: `formula_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        operands: formulaOperands
+      };
+      
+      // Update the till in the service with the formula
+      await tillService.updateTill(formulaTillId, { formula });
+      
+      // Update local state
+      setTills(prev => prev.map(till =>
+        till.id === formulaTillId ? { ...till, formula } : till
+      ));
+      
+      setShowFormulaModal(false);
+      setFormulaTillId(null);
+      setFormulaOperands([]);
+    } catch (error) {
+      console.error('Error saving formula:', error);
+      Alert.alert('Error', 'Failed to save formula');
+    }
   };
 
   const handleAddOperand = () => {

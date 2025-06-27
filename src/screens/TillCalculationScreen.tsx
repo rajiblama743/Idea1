@@ -89,8 +89,8 @@ export default function TillCalculationScreen() {
   };
 
   // Render input fields for all sessions and sub-sessions in a till
-  const renderInputFields = (till: Till): JSX.Element[] => {
-    const fields: JSX.Element[] = [];
+  const renderInputFields = (till: Till): React.ReactElement[] => {
+    const fields: React.ReactElement[] = [];
     console.log('Rendering input fields for till:', till.name, 'with sessions:', till.sessions.length);
     
     till.sessions.forEach((session: Session) => {
@@ -116,7 +116,10 @@ export default function TillCalculationScreen() {
           if (!sub.formula) {
             fields.push(
               <View key={key} style={[styles.inputField, { marginLeft: level * 20 }] }>
-                <Text style={styles.inputLabel}>{sub.name}</Text>
+                <View style={styles.inputLabelContainer}>
+                  <Text style={styles.inputLabel}>{sub.name}</Text>
+                  <Text style={styles.sessionLabel}>in {session.name}</Text>
+                </View>
                 <TextInput
                   style={styles.input}
                   placeholder="Enter value"
@@ -184,46 +187,77 @@ export default function TillCalculationScreen() {
     return parts.join('');
   };
 
-  const renderResult = (result: CalculationResult, level = 0): JSX.Element => {
+  // Helper to get the created date/time for the current calculation result
+  const getCalcCreatedAt = () => {
+    if (calcResult && (calcResult as any).createdAt) {
+      const d = new Date((calcResult as any).createdAt);
+      return d.toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
+    return '';
+  };
+
+  // Restore the original beautiful card-based, modern, and hierarchical result UI
+  const renderResult = (result: CalculationResult, level = 0, key?: string): React.ReactElement => {
     const hasFormula = !!result.formula;
     const formulaString = hasFormula ? renderFormula(result.formula as Formula, result, selectedTill?.sessions || []) : null;
+    // Find the session name for subsessions
+    let sessionName = '';
+    if (result.subSessionId && selectedTill) {
+      const session = selectedTill.sessions.find(s => s.id === result.sessionId);
+      sessionName = session?.name || '';
+    }
+    // Show date/time only for the top-level (till) result, below the name
+    let createdAtString = '';
+    if (level === 0) {
+      let date: Date;
+      if (calcResult && (calcResult as any).createdAt) {
+        date = new Date((calcResult as any).createdAt);
+      } else {
+        date = new Date();
+      }
+      createdAtString = date.toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
     return (
       <View
-        key={result.sessionId + (result.subSessionId || '')}
-        style={{
-          marginLeft: level * 20,
-          marginBottom: 12,
-          backgroundColor: level === 0 ? '#f8f9fa' : '#fff',
-          borderRadius: 10,
-          padding: 12,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.05,
-          shadowRadius: 2,
-          elevation: 1,
-          borderWidth: level === 0 ? 1 : 0,
-          borderColor: '#e0e0e0',
-        }}
+        key={key || (result.sessionId + (result.subSessionId || ''))}
+        style={[
+          styles.resultCard,
+          {
+            marginLeft: level * 24,
+            marginBottom: 16,
+            backgroundColor: level === 0 ? '#f8f9fa' : '#fff',
+            borderLeftWidth: level === 0 ? 6 : 0,
+            borderLeftColor: '#007bff',
+            shadowOpacity: 0.12,
+          },
+        ]}
       >
-        <Text style={{ fontWeight: 'bold', fontSize: 16, color: '#333', marginBottom: 4 }}>
-          {result.name}
-        </Text>
-        {result.inputValue !== undefined && (
-          <Text style={{ color: '#888', fontSize: 14, marginBottom: 2 }}>
-            Input: {result.inputValue}
-          </Text>
+        <View style={styles.resultHeaderRowSimple}>
+          <View style={styles.resultNameContainer}>
+            <Text style={styles.resultName}>{result.name}</Text>
+            {level === 0 && !!createdAtString && (
+              <Text style={styles.resultCreatedAt}>{createdAtString}</Text>
+            )}
+            {sessionName ? (
+              <Text style={styles.sessionName}>in {sessionName}</Text>
+            ) : null}
+          </View>
+          <Text style={styles.resultValueSimple}>{result.calculatedValue}</Text>
+        </View>
+        {(result.inputValue !== undefined || (hasFormula && formulaString)) && (
+          <View style={styles.resultDetailsBoxSmall}>
+            {result.inputValue !== undefined && (
+              <Text style={styles.resultDetailLabelSmall}>Input: <Text style={styles.resultDetailValueSmall}>{result.inputValue}</Text></Text>
+            )}
+            {hasFormula && formulaString && (
+              <Text style={styles.resultDetailLabelSmall}>Formula: <Text style={styles.resultDetailValueSmall}>{formulaString}</Text></Text>
+            )}
+          </View>
         )}
-        {hasFormula && formulaString && (
-          <Text style={{ color: '#888', fontSize: 13, marginBottom: 2 }}>
-            Formula: {formulaString}
-          </Text>
-        )}
-        <Text style={{ color: '#333', fontSize: 15, marginBottom: 2 }}>
-          Result: {result.calculatedValue}
-        </Text>
         {result.subResults && result.subResults.length > 0 && (
-          <View style={{ marginTop: 8 }}>
-            {result.subResults.map(sub => renderResult(sub, level + 1))}
+          <View style={styles.subResultsContainer}>
+            <View style={styles.resultDivider} />
+            {result.subResults.map(sub => renderResult(sub, level + 1, sub.sessionId + (sub.subSessionId || '')))}
           </View>
         )}
       </View>
@@ -242,7 +276,6 @@ export default function TillCalculationScreen() {
     return (
       <View style={{ padding: 20 }}>
         <Text>No tills found. Create a till first in Till Formulation.</Text>
-        <Button title="Go to Till Formulation" onPress={() => navigation.navigate('TillFormulation' as never)} />
       </View>
     );
   }
@@ -255,7 +288,6 @@ export default function TillCalculationScreen() {
       ) : tills.length === 0 ? (
         <View style={{ margin: 16 }}>
           <Text>No tills found. Create a till first in Till Formulation.</Text>
-          <Button title="Go to Till Formulation" onPress={() => navigation.navigate('TillFormulation' as never)} />
         </View>
       ) : (
         <View style={{ margin: 16 }}>
@@ -285,54 +317,317 @@ export default function TillCalculationScreen() {
       )}
       {/* Calculation Modal */}
       <Modal visible={showCalcModal} animationType="slide" onRequestClose={() => setShowCalcModal(false)}>
-        <ScrollView style={{ flex: 1, backgroundColor: '#fff' }}>
-          <Text style={{ fontSize: 20, fontWeight: 'bold', margin: 16 }}>Calculate Till: {selectedTill?.name}</Text>
-          {selectedTill && (
-            <>
-              {renderInputFields(selectedTill).length > 0 ? (
-                renderInputFields(selectedTill)
-              ) : (
-                <View style={{ margin: 16, padding: 16, backgroundColor: '#f8f9fa', borderRadius: 8 }}>
-                  <Text style={{ fontSize: 16, color: '#666', textAlign: 'center' }}>
-                    No input fields available. This till only contains formulas.
-                  </Text>
-                  <Text style={{ fontSize: 14, color: '#888', textAlign: 'center', marginTop: 8 }}>
-                    You can still calculate using the formulas defined in the sessions.
-                  </Text>
-                </View>
-              )}
-            </>
-          )}
-          <View style={{ margin: 16 }}>
-            <Button title="Calculate" onPress={handleCalculate} />
-            <Button title="Cancel" color="#888" onPress={() => setShowCalcModal(false)} />
+        <View style={styles.modalContainer}>
+          {/* Header */}
+          <View style={styles.modalHeader}>
+            <TouchableOpacity 
+              style={styles.closeButton}
+              onPress={() => setShowCalcModal(false)}
+            >
+              <Text style={styles.closeButtonText}>✕</Text>
+            </TouchableOpacity>
+            <View style={styles.headerContent}>
+              <Text style={styles.modalTitle}>Calculate Till</Text>
+              <Text style={styles.modalSubtitle}>{selectedTill?.name}</Text>
+            </View>
           </View>
-        </ScrollView>
+
+          {/* Content */}
+          <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
+            {selectedTill && (
+              <>
+                {renderInputFields(selectedTill).length > 0 ? (
+                  <View style={styles.inputsContainer}>
+                    <Text style={styles.sectionTitle}>Input Values</Text>
+                    {renderInputFields(selectedTill)}
+                  </View>
+                ) : (
+                  <View style={styles.noInputsContainer}>
+                    <Text style={styles.noInputsIcon}>🧮</Text>
+                    <Text style={styles.noInputsTitle}>Formula-Based Calculation</Text>
+                    <Text style={styles.noInputsText}>
+                      This till uses formulas for all calculations. No manual input required.
+                    </Text>
+                  </View>
+                )}
+              </>
+            )}
+          </ScrollView>
+
+          {/* Footer */}
+          <View style={styles.modalFooter}>
+            <TouchableOpacity 
+              style={styles.cancelButton}
+              onPress={() => setShowCalcModal(false)}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.calculateButton}
+              onPress={handleCalculate}
+            >
+              <Text style={styles.calculateButtonText}>Calculate</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
       {/* Result Modal */}
       <Modal visible={showResultModal} animationType="slide" onRequestClose={() => setShowResultModal(false)}>
-        <ScrollView style={{ flex: 1, backgroundColor: '#fff' }}>
-          <Text style={{ fontSize: 20, fontWeight: 'bold', margin: 16 }}>Calculation Result</Text>
-          {calcResult && renderResult(calcResult)}
-          <View style={{ margin: 16 }}>
-            <Button title="Close" onPress={() => setShowResultModal(false)} />
+        <View style={styles.modalContainer}>
+          {/* Header */}
+          <View style={styles.modalHeader}>
+            <TouchableOpacity 
+              style={styles.closeButton}
+              onPress={() => setShowResultModal(false)}
+            >
+              <Text style={styles.closeButtonText}>✕</Text>
+            </TouchableOpacity>
+            <View style={styles.headerContent}>
+              <Text style={styles.modalTitle}>Calculation Result</Text>
+              <Text style={styles.modalSubtitle}>{selectedTill?.name}</Text>
+            </View>
           </View>
-        </ScrollView>
+
+          {/* Content */}
+          <ScrollView contentContainerStyle={styles.resultsContainer} showsVerticalScrollIndicator={false}>
+            {calcResult && (
+              <View style={styles.resultsContainer}>
+                {renderResult(calcResult)}
+              </View>
+            )}
+          </ScrollView>
+
+          {/* Footer */}
+          <View style={styles.modalFooter}>
+            <TouchableOpacity 
+              style={styles.cancelButton}
+              onPress={() => setShowResultModal(false)}
+            >
+              <Text style={styles.cancelButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  inputField: { marginBottom: 15 },
-  inputLabel: { fontWeight: 'bold', marginBottom: 5 },
-  input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 6, padding: 8, fontSize: 16 },
+  inputField: { 
+    marginBottom: 20,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#f0f0f0'
+  },
+  inputLabel: { 
+    fontWeight: '600', 
+    marginBottom: 8,
+    fontSize: 16,
+    color: '#333'
+  },
+  input: { 
+    borderWidth: 1, 
+    borderColor: '#e0e0e0', 
+    borderRadius: 8, 
+    padding: 12, 
+    fontSize: 16,
+    backgroundColor: '#f8f9fa',
+    color: '#333'
+  },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' },
   modalContent: { backgroundColor: '#fff', padding: 20, borderRadius: 12, width: '90%', maxWidth: 400 },
   modalTitle: { fontWeight: 'bold', fontSize: 18, marginBottom: 15 },
   modalButton: { flex: 1, padding: 12, borderRadius: 8, alignItems: 'center', marginHorizontal: 5 },
-  cancelButton: { backgroundColor: '#eee' },
+  cancelButton: { backgroundColor: '#eee', padding: 12, borderRadius: 8, flex: 1, marginRight: 8 },
   confirmButton: { backgroundColor: '#007bff' },
-  cancelButtonText: { color: '#333', fontWeight: 'bold' },
+  cancelButtonText: { color: '#333', fontWeight: 'bold', textAlign: 'center' },
   confirmButtonText: { color: '#fff', fontWeight: 'bold' },
+  modalContainer: { flex: 1, backgroundColor: '#fff' },
+  modalHeader: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    padding: 20, 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#f0f0f0',
+    backgroundColor: '#f8f9fa'
+  },
+  closeButton: { 
+    padding: 8, 
+    marginRight: 12,
+    borderRadius: 20,
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2
+  },
+  closeButtonText: { fontSize: 18, fontWeight: 'bold', color: '#666' },
+  headerContent: { flex: 1 },
+  modalSubtitle: { fontSize: 16, color: '#666', marginTop: 4 },
+  inputsContainer: { padding: 20 },
+  sectionTitle: { 
+    fontWeight: 'bold', 
+    fontSize: 20, 
+    marginBottom: 16, 
+    color: '#333',
+    textAlign: 'center'
+  },
+  noInputsContainer: { 
+    flex: 1, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    padding: 40 
+  },
+  noInputsIcon: { fontSize: 48, marginBottom: 16 },
+  noInputsTitle: { 
+    fontWeight: 'bold', 
+    fontSize: 20, 
+    marginBottom: 12, 
+    color: '#333',
+    textAlign: 'center'
+  },
+  noInputsText: { 
+    color: '#666', 
+    fontSize: 16, 
+    textAlign: 'center',
+    lineHeight: 22
+  },
+  modalFooter: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+    backgroundColor: '#f8f9fa'
+  },
+  calculateButton: { 
+    backgroundColor: '#007bff', 
+    padding: 16, 
+    borderRadius: 10, 
+    flex: 1,
+    marginLeft: 8,
+    shadowColor: '#007bff',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  calculateButtonText: { 
+    color: '#fff', 
+    fontWeight: 'bold', 
+    fontSize: 16,
+    textAlign: 'center'
+  },
+  resultsContainer: {
+    padding: 20,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    width: '100%',
+  },
+  resultCard: {
+    marginBottom: 16,
+    padding: 20,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+    width: '100%',
+    maxWidth: 700,
+    alignSelf: 'center',
+  },
+  resultHeaderRowSimple: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    marginBottom: 8,
+  },
+  resultNameContainer: {
+    flex: 1,
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+  },
+  resultName: {
+    fontWeight: 'bold',
+    fontSize: 22,
+    color: '#333',
+    marginBottom: 4,
+  },
+  sessionName: {
+    fontSize: 16,
+    color: '#666',
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+  resultValueSimple: {
+    fontSize: 22,
+    color: '#2a2a6a',
+    fontWeight: '600',
+    marginLeft: 16,
+    textAlign: 'right',
+    minWidth: 60,
+  },
+  resultDetailsBoxSmall: {
+    marginTop: 2,
+    marginBottom: 6,
+    backgroundColor: '#f3f6fa',
+    borderRadius: 7,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    alignSelf: 'flex-start',
+    minWidth: 0,
+    maxWidth: '90%',
+  },
+  resultDetailLabelSmall: {
+    fontWeight: '500',
+    fontSize: 13,
+    color: '#495057',
+    marginBottom: 2,
+  },
+  resultDetailValueSmall: {
+    fontWeight: '400',
+    fontSize: 13,
+    color: '#222',
+  },
+  resultDivider: {
+    height: 1,
+    backgroundColor: '#e0e0e0',
+    marginVertical: 16,
+    borderRadius: 1,
+  },
+  subResultsContainer: {
+    marginTop: 0,
+    paddingTop: 0,
+  },
+  inputLabelContainer: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  sessionLabel: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+  resultCreatedAt: {
+    fontSize: 13,
+    color: '#888',
+    marginBottom: 4,
+    textAlign: 'right',
+    fontStyle: 'italic',
+  },
 }); 
