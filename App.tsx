@@ -38,7 +38,7 @@ export default function App() {
       try {
         // Initialize SQLite database
         await sqliteService.initDatabase();
-        await tillService.clearAllData();
+        await tillService.initDatabase();
         setDbInitialized(true);
       } catch (error: any) {
         console.error('App: Failed to initialize app:', error);

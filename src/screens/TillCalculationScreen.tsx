@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, Button, ScrollView, Modal, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { tillService } from '@/services/tillService';
 import { Till, Session, SubSession, CalculationInput, CalculationResult, Formula } from '@/types';
 
@@ -15,22 +15,24 @@ export default function TillCalculationScreen() {
   const [showResultModal, setShowResultModal] = useState(false);
   const [resultSaved, setResultSaved] = useState(false);
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      const userTills = await tillService.getTills();
-      console.log('TillCalculationScreen: Loaded tills from service:', userTills.length);
-      userTills.forEach(till => {
-        console.log('Till:', till.name, 'sessions:', till.sessions.length);
-        till.sessions.forEach(session => {
-          console.log('  Session:', session.name, 'subsessions:', session.subSessions?.length || 0);
+  useFocusEffect(
+    React.useCallback(() => {
+      const load = async () => {
+        setLoading(true);
+        const userTills = await tillService.getTills();
+        console.log('TillCalculationScreen: Loaded tills from service:', userTills.length);
+        userTills.forEach(till => {
+          console.log('Till:', till.name, 'sessions:', till.sessions.length);
+          till.sessions.forEach(session => {
+            console.log('  Session:', session.name, 'subsessions:', session.subSessions?.length || 0);
+          });
         });
-      });
-      setTills(userTills);
-      setLoading(false);
-    };
-    load();
-  }, []);
+        setTills(userTills);
+        setLoading(false);
+      };
+      load();
+    }, [])
+  );
 
   const handleStartCalculation = (till: Till) => {
     setSelectedTill(till);

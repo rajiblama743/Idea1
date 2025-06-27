@@ -1,55 +1,48 @@
 import { Session, SubSession, Formula, Calculation, CalculationInput, CalculationResult, FormulaOperand, Till } from '@/types';
-import { createDrawerNavigator } from '@react-navigation/drawer';
-
-// In-memory mock storage for sessions and calculations
-const mockSessions: Session[] = [];
-const mockCalculations: Calculation[] = [];
-// In-memory mock storage for tills
-const mockTills: Till[] = [];
+import { sqliteService } from './sqlite';
 
 class TillService {
+  // Initialize the database
+  async initDatabase() {
+    await sqliteService.initDatabase();
+  }
+
   // Clear all data (useful for testing or resetting)
-  clearAllData() {
+  async clearAllData() {
     console.log('tillService.clearAllData(): clearing all data');
-    mockSessions.length = 0;
-    mockCalculations.length = 0;
-    mockTills.length = 0;
+    await sqliteService.clearAllData();
     console.log('tillService.clearAllData(): all data cleared');
   }
 
   // Session Management
   async createSession(session: Omit<Session, 'id' | 'createdAt' | 'updatedAt' | 'isSynced'>): Promise<Session> {
-    const newSession: Session = {
-      ...session,
-      id: (mockSessions.length + 1).toString(),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      isSynced: true,
-    };
-    mockSessions.push(newSession);
-    return newSession;
+    // Note: We need to pass tillId for SQLite, but it's not in the Session type
+    // This will need to be handled by the calling code
+    throw new Error('createSession requires tillId. Use createSessionForTill instead.');
+  }
+
+  async createSessionForTill(tillId: string, session: Omit<Session, 'id' | 'createdAt' | 'updatedAt' | 'isSynced'>): Promise<Session> {
+    return await sqliteService.createSession({ ...session, tillId });
   }
 
   async getSessions(userId: string): Promise<Session[]> {
-    return mockSessions.filter(s => s.userId === userId);
+    return await sqliteService.getSessions(userId);
   }
 
   async getSession(sessionId: string): Promise<Session | null> {
-    return mockSessions.find(s => s.id === sessionId) || null;
+    // Note: SQLite service doesn't have getSession by ID, we'll need to get all sessions and filter
+    const sessions = await sqliteService.getSessions('guest'); // Assuming guest user for now
+    return sessions.find(s => s.id === sessionId) || null;
   }
 
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<Session | null> {
-    const idx = mockSessions.findIndex(s => s.id === sessionId);
-    if (idx === -1) return null;
-    mockSessions[idx] = { ...mockSessions[idx], ...updates, updatedAt: new Date() };
-    return mockSessions[idx];
+    return await sqliteService.updateSession(sessionId, updates);
   }
 
   async deleteSession(sessionId: string): Promise<boolean> {
-    const idx = mockSessions.findIndex(s => s.id === sessionId);
-    if (idx === -1) return false;
-    mockSessions.splice(idx, 1);
-    return true;
+    // Note: SQLite service doesn't have deleteSession, we'll need to implement it
+    console.warn('deleteSession not implemented in SQLite service yet');
+    return false;
   }
 
   // SubSession Management
@@ -57,17 +50,7 @@ class TillService {
     parentId: string, 
     subSession: Omit<SubSession, 'id' | 'parentId'>
   ): Promise<SubSession | null> {
-    const parentSession = await this.getSession(parentId);
-    if (!parentSession) return null;
-    const newSubSession: SubSession = {
-      ...subSession,
-      id: `subsession_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      parentId,
-      subSessions: [],
-    };
-    parentSession.subSessions.push(newSubSession);
-    await this.updateSession(parentId, { subSessions: parentSession.subSessions });
-    return newSubSession;
+    return await sqliteService.addSubSession(parentId, subSession);
   }
 
   async updateSubSession(
@@ -75,57 +58,13 @@ class TillService {
     subSessionId: string,
     updates: Partial<SubSession>
   ): Promise<SubSession | null> {
-    const session = await this.getSession(sessionId);
-    if (!session) return null;
-    const updateSubSessionInArray = (subSessions: SubSession[]): SubSession[] => {
-      return subSessions.map(subSession => {
-        if (subSession.id === subSessionId) {
-          return { ...subSession, ...updates };
-        }
-        if (subSession.subSessions) {
-          return {
-            ...subSession,
-            subSessions: updateSubSessionInArray(subSession.subSessions),
-          };
-        }
-        return subSession;
-      });
-    };
-    session.subSessions = updateSubSessionInArray(session.subSessions);
-    await this.updateSession(sessionId, { subSessions: session.subSessions });
-    // Find and return the updated sub-session
-    const findSubSession = (subSessions: SubSession[]): SubSession | null => {
-      for (const subSession of subSessions) {
-        if (subSession.id === subSessionId) {
-          return subSession;
-        }
-        if (subSession.subSessions) {
-          const found = findSubSession(subSession.subSessions);
-          if (found) return found;
-        }
-      }
-      return null;
-    };
-    return findSubSession(session.subSessions);
+    return await sqliteService.updateSubSession(sessionId, subSessionId, updates);
   }
 
   async deleteSubSession(sessionId: string, subSessionId: string): Promise<boolean> {
-    const session = await this.getSession(sessionId);
-    if (!session) return false;
-    const removeSubSessionFromArray = (subSessions: SubSession[]): SubSession[] => {
-      return subSessions.filter(subSession => {
-        if (subSession.id === subSessionId) {
-          return false;
-        }
-        if (subSession.subSessions) {
-          subSession.subSessions = removeSubSessionFromArray(subSession.subSessions);
-        }
-        return true;
-      });
-    };
-    session.subSessions = removeSubSessionFromArray(session.subSessions);
-    await this.updateSession(sessionId, { subSessions: session.subSessions });
-    return true;
+    // Note: SQLite service doesn't have deleteSubSession, we'll need to implement it
+    console.warn('deleteSubSession not implemented in SQLite service yet');
+    return false;
   }
 
   // Formula Management
@@ -134,45 +73,51 @@ class TillService {
     subSessionId: string | null,
     formula: Omit<Formula, 'id'>
   ): Promise<Formula | null> {
-    const newFormula: Formula = {
-      ...formula,
-      id: `formula_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    };
-    if (subSessionId) {
-      await this.updateSubSession(sessionId, subSessionId, { formula: newFormula });
-      return newFormula;
-    } else {
-      await this.updateSession(sessionId, { formula: newFormula });
-      return newFormula;
-    }
+    return await sqliteService.setFormula(sessionId, subSessionId, null, formula);
+  }
+
+  async setTillFormula(tillId: string, formula: Omit<Formula, 'id'>): Promise<Formula | null> {
+    return await sqliteService.setFormula(null, null, tillId, formula);
   }
 
   // Calculation Management
   async createCalculation(calculation: Omit<Calculation, 'id' | 'createdAt' | 'updatedAt' | 'isSynced'>): Promise<Calculation> {
-    const newCalculation: Calculation = {
-      ...calculation,
-      id: (mockCalculations.length + 1).toString(),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      isSynced: true,
-    };
-    mockCalculations.push(newCalculation);
-    return newCalculation;
+    return await sqliteService.createCalculation(calculation);
   }
 
   async getCalculations(userId: string): Promise<Calculation[]> {
-    return mockCalculations.filter(c => c.userId === userId);
+    return await sqliteService.getCalculations(userId);
   }
 
   async getCalculation(calculationId: string): Promise<Calculation | null> {
-    return mockCalculations.find(c => c.id === calculationId) || null;
+    // Note: SQLite service doesn't have getCalculation by ID, we'll need to implement it
+    const calculations = await sqliteService.getCalculations('guest'); // Assuming guest user for now
+    return calculations.find(c => c.id === calculationId) || null;
   }
 
   async deleteCalculation(calculationId: string): Promise<boolean> {
-    const idx = mockCalculations.findIndex(c => c.id === calculationId);
-    if (idx === -1) return false;
-    mockCalculations.splice(idx, 1);
-    return true;
+    return await sqliteService.deleteCalculation(calculationId);
+  }
+
+  // Till Management
+  async createTill(till: Omit<Till, 'id' | 'createdAt' | 'updatedAt'>): Promise<Till> {
+    return await sqliteService.createTill(till);
+  }
+
+  async getTills(): Promise<Till[]> {
+    return await sqliteService.getTills();
+  }
+
+  async getTill(tillId: string): Promise<Till | null> {
+    return await sqliteService.getTill(tillId);
+  }
+
+  async updateTill(tillId: string, updates: Partial<Till>): Promise<Till | null> {
+    return await sqliteService.updateTill(tillId, updates);
+  }
+
+  async deleteTill(tillId: string): Promise<boolean> {
+    return await sqliteService.deleteTill(tillId);
   }
 
   // Calculation Logic
@@ -207,22 +152,18 @@ class TillService {
       };
     };
 
-    // Calculate all sub-sessions
-    const subResults = session.subSessions.map(subSession => calculateSubSession(subSession));
-    
-    // Find input value for this session
+    // Calculate main session
     const input = inputs.find(input => input.sessionId === session.id && !input.subSessionId);
     let calculatedValue = input?.value || 0;
 
     // Apply formula if exists
     if (session.formula) {
-      console.log('calculateSession: Applying formula to session:', session.name);
       calculatedValue = this.applyFormula(session.formula, inputs, session, sessionResults);
-      console.log('calculateSession: Formula result for session:', session.name, '=', calculatedValue);
     }
 
-    console.log('calculateSession: Final result for session:', session.name, '=', calculatedValue);
-    
+    // Calculate sub-sessions
+    const subResults = session.subSessions.map(ss => calculateSubSession(ss));
+
     return {
       sessionId: session.id,
       name: session.name,
@@ -234,268 +175,141 @@ class TillService {
   }
 
   private applyFormula(formula: Formula, inputs: CalculationInput[], session: Session, sessionResults?: CalculationResult[]): number {
-    console.log('applyFormula: Starting formula application for session:', session.name);
-    console.log('applyFormula: Formula operands:', formula.operands);
+    console.log('applyFormula: Applying formula with operands:', formula.operands);
     
     const getValue = (operand: FormulaOperand): number => {
-      console.log('applyFormula: Processing operand:', operand);
+      console.log('getValue: Processing operand:', operand);
+      
       switch (operand.type) {
         case 'input':
-          const inputValue = parseFloat(operand.value) || 0;
-          console.log('applyFormula: Input operand value:', inputValue);
-          return inputValue;
+          // For input type, use the value directly
+          const numValue = parseFloat(operand.value);
+          console.log('getValue: Input value:', numValue);
+          return isNaN(numValue) ? 0 : numValue;
+          
         case 'session':
-          console.log('applyFormula: Session operand - looking for session with ID:', operand.value);
-          if (sessionResults) {
-            const referencedSession = sessionResults.find(s => s.sessionId === operand.value);
-            if (referencedSession) {
-              console.log('applyFormula: Found referenced session:', referencedSession.name, 'value:', referencedSession.calculatedValue);
-              return referencedSession.calculatedValue;
-            } else {
-              console.log('applyFormula: Referenced session not found in session results');
-            }
-          } else {
-            console.log('applyFormula: No session results available for session operand');
+          // Find the session result
+          const sessionResult = sessionResults?.find(r => r.sessionId === operand.value);
+          if (sessionResult) {
+            console.log('getValue: Session result found:', sessionResult.calculatedValue);
+            return sessionResult.calculatedValue;
           }
+          console.log('getValue: Session result not found for:', operand.value);
           return 0;
+          
         case 'subsession':
-          console.log('applyFormula: Looking for subsession with ID:', operand.value);
-          // Find the sub-session in this session's sub-sessions
+          // Find the sub-session result recursively
           const findAndCalculateSubSession = (subSessions: SubSession[]): number => {
             for (const subSession of subSessions) {
               if (subSession.id === operand.value) {
-                // Calculate this sub-session
-                const subInput = inputs.find(input => 
+                // Find input value for this sub-session
+                const input = inputs.find(input => 
                   input.sessionId === session.id && input.subSessionId === subSession.id
                 );
-                let calculatedValue = subInput?.value || 0;
                 
+                let calculatedValue = input?.value || 0;
+
+                // Apply formula if exists
                 if (subSession.formula) {
                   calculatedValue = this.applyFormula(subSession.formula, inputs, session, sessionResults);
                 }
-                
-                console.log('applyFormula: Calculated sub-session value:', calculatedValue);
+
+                console.log('getValue: Sub-session result:', calculatedValue);
                 return calculatedValue;
               }
-              if (subSession.subSessions.length > 0) {
-                const result = findAndCalculateSubSession(subSession.subSessions);
-                if (result !== 0) return result;
+              
+              // Check nested sub-sessions
+              if (subSession.subSessions && subSession.subSessions.length > 0) {
+                const nestedResult = findAndCalculateSubSession(subSession.subSessions);
+                if (nestedResult !== null) {
+                  return nestedResult;
+                }
               }
             }
+            console.log('getValue: Sub-session not found for:', operand.value);
             return 0;
           };
           
-          const calculatedSubValue = findAndCalculateSubSession(session.subSessions);
-          console.log('applyFormula: Calculated sub-session value:', calculatedSubValue);
-          return calculatedSubValue;
+          return findAndCalculateSubSession(session.subSessions);
+          
         default:
-          console.log('applyFormula: Unknown operand type, returning 0');
+          console.log('getValue: Unknown operand type:', operand.type);
           return 0;
       }
     };
 
-    if (formula.operands.length === 0) {
-      console.log('applyFormula: No operands in formula, returning 0');
-      return 0;
-    }
-
-    let result = getValue(formula.operands[0]);
-    console.log('applyFormula: Initial result:', result);
-
-    // Apply each operand's operation to the result
-    for (let i = 1; i < formula.operands.length; i++) {
+    let result = 0;
+    
+    for (let i = 0; i < formula.operands.length; i++) {
       const operand = formula.operands[i];
-      const operandValue = getValue(operand);
+      const value = getValue(operand);
       
-      console.log(`applyFormula: Applying ${operand.operation} with value ${operandValue} to result ${result}`);
-      
-      switch (operand.operation) {
-        case 'add':
-          result += operandValue;
-          break;
-        case 'subtract':
-          result -= operandValue;
-          break;
-        case 'multiply':
-          result *= operandValue;
-          break;
-        case 'divide':
-          result = operandValue !== 0 ? result / operandValue : 0;
-          break;
-        default:
-          break;
+      if (i === 0) {
+        result = value;
+      } else {
+        const operation = operand.operation;
+        switch (operation) {
+          case 'add':
+            result += value;
+            break;
+          case 'subtract':
+            result -= value;
+            break;
+          case 'multiply':
+            result *= value;
+            break;
+          case 'divide':
+            if (value !== 0) {
+              result /= value;
+            } else {
+              console.warn('Division by zero detected');
+              result = 0;
+            }
+            break;
+        }
       }
-      
-      console.log('applyFormula: Result after operation:', result);
     }
-
-    console.log('applyFormula: Final formula result:', result);
+    
+    console.log('applyFormula: Final result:', result);
     return result;
   }
 
-  // Till Management
-  async createTill(till: Omit<Till, 'id' | 'createdAt' | 'updatedAt'>): Promise<Till> {
-    console.log('tillService.createTill(): creating till with name:', till.name);
-    console.log('tillService.createTill(): current mockTills length before:', mockTills.length);
-    
-    const newTill: Till = {
-      ...till,
-      id: `till_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    
-    console.log('tillService.createTill(): new till id:', newTill.id);
-    mockTills.push(newTill);
-    
-    console.log('tillService.createTill(): current mockTills length after:', mockTills.length);
-    console.log('tillService.createTill(): all tills:', mockTills.map(t => ({ id: t.id, name: t.name })));
-    
-    return newTill;
-  }
-
-  async getTills(): Promise<Till[]> {
-    console.log('tillService.getTills(): mockTills length:', mockTills.length);
-    mockTills.forEach((till, index) => {
-      console.log(`  Till ${index}:`, till.name, 'sessions:', till.sessions.length);
-    });
-    return mockTills;
-  }
-
-  async getTill(tillId: string): Promise<Till | null> {
-    return mockTills.find(t => t.id === tillId) || null;
-  }
-
-  async updateTill(tillId: string, updates: Partial<Till>): Promise<Till | null> {
-    console.log('tillService.updateTill(): updating tillId:', tillId);
-    console.log('tillService.updateTill(): updates:', updates);
-    console.log('tillService.updateTill(): current mockTills length:', mockTills.length);
-    
-    const idx = mockTills.findIndex(t => t.id === tillId);
-    console.log('tillService.updateTill(): found till at index:', idx);
-    
-    if (idx === -1) {
-      console.log('tillService.updateTill(): till not found!');
-      return null;
-    }
-    
-    mockTills[idx] = { ...mockTills[idx], ...updates, updatedAt: new Date() };
-    console.log('tillService.updateTill(): updated till sessions:', mockTills[idx].sessions.length);
-    return mockTills[idx];
-  }
-
-  async deleteTill(tillId: string): Promise<boolean> {
-    const idx = mockTills.findIndex(t => t.id === tillId);
-    if (idx === -1) return false;
-    mockTills.splice(idx, 1);
-    return true;
-  }
-
-  // Calculate a Till (recursively calculates all Sessions and applies Till formula if present)
   calculateTill(till: Till, inputs: CalculationInput[]): CalculationResult {
-    console.log('calculateTill: Starting calculation for till:', till.name);
-    console.log('calculateTill: Till formula:', till.formula);
+    console.log('calculateTill: Starting calculation for till:', till.name, 'ID:', till.id);
     
-    // First pass: calculate all sessions without cross-references
-    const initialSessionResults = till.sessions.map(session => this.calculateSession(session, inputs));
-    console.log('calculateTill: Initial session results:', initialSessionResults.map(s => ({ id: s.sessionId, name: s.name, value: s.calculatedValue })));
+    // Calculate all sessions first
+    const sessionResults = till.sessions.map(session => 
+      this.calculateSession(session, inputs)
+    );
     
-    // Second pass: recalculate sessions that have formulas referencing other sessions
-    const finalSessionResults: CalculationResult[] = till.sessions.map(session => {
-      if (session.formula && session.formula.operands.some(op => op.type === 'session')) {
-        console.log('calculateTill: Recalculating session with cross-references:', session.name);
-        return this.calculateSession(session, inputs, initialSessionResults);
-      }
-      const existingResult = initialSessionResults.find(s => s.sessionId === session.id);
-      return existingResult!;
-    });
-    
-    console.log('calculateTill: Final session results:', finalSessionResults.map(s => ({ id: s.sessionId, name: s.name, value: s.calculatedValue })));
-    
-    let calculatedValue = 0;
+    // Apply till formula if exists
+    let totalResult = 0;
     if (till.formula) {
-      console.log('calculateTill: Till has formula, applying it');
-      // If Till has a formula, apply it (operands can reference sessions by id)
-      const getValue = (operand: FormulaOperand): number => {
-        console.log('calculateTill: Processing operand:', operand);
-        switch (operand.type) {
-          case 'input':
-            const inputValue = parseFloat(operand.value) || 0;
-            console.log('calculateTill: Input operand value:', inputValue);
-            return inputValue;
-          case 'session':
-            console.log('calculateTill: Looking for session with ID:', operand.value);
-            console.log('calculateTill: Available session results:', finalSessionResults.map(s => ({ id: s.sessionId, name: s.name, value: s.calculatedValue })));
-            const sessionResult = finalSessionResults.find(s => s.sessionId === operand.value);
-            console.log('calculateTill: Found session result:', sessionResult);
-            const sessionValue = sessionResult ? sessionResult.calculatedValue : 0;
-            console.log('calculateTill: Session value:', sessionValue);
-            return sessionValue;
-          case 'subsession':
-            console.log('calculateTill: Looking for subsession with ID:', operand.value);
-            // Find the session containing this subsession
-            for (const sessionResult of finalSessionResults) {
-              const findSub = (subResults: CalculationResult[]): number | null => {
-                for (const sub of subResults) {
-                  if (sub.subSessionId === operand.value) return sub.calculatedValue;
-                  if (sub.subResults && sub.subResults.length > 0) {
-                    const found = findSub(sub.subResults);
-                    if (found !== null) return found;
-                  }
-                }
-                return null;
-              };
-              const found = findSub(sessionResult.subResults || []);
-              if (found !== null) {
-                console.log('calculateTill: Found subsession value:', found);
-                return found;
-              }
-            }
-            console.log('calculateTill: Subsession not found, returning 0');
-            return 0;
-          default:
-            console.log('calculateTill: Unknown operand type, returning 0');
-            return 0;
-        }
+      // Create a dummy session for the till formula calculation
+      const dummySession: Session = {
+        id: till.id,
+        name: till.name,
+        userId: 'guest',
+        order: 0,
+        subSessions: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        isSynced: true,
       };
-      if (till.formula.operands.length > 0) {
-        calculatedValue = getValue(till.formula.operands[0]);
-        console.log('calculateTill: Initial calculated value:', calculatedValue);
-        for (let i = 1; i < till.formula.operands.length; i++) {
-          const operand = till.formula.operands[i];
-          const operandValue = getValue(operand);
-          console.log(`calculateTill: Applying ${operand.operation} with value ${operandValue} to result ${calculatedValue}`);
-          switch (operand.operation) {
-            case 'add':
-              calculatedValue += operandValue;
-              break;
-            case 'subtract':
-              calculatedValue -= operandValue;
-              break;
-            case 'multiply':
-              calculatedValue *= operandValue;
-              break;
-            case 'divide':
-              calculatedValue = operandValue !== 0 ? calculatedValue / operandValue : 0;
-              break;
-            default:
-              break;
-          }
-          console.log('calculateTill: Result after operation:', calculatedValue);
-        }
-      }
+      totalResult = this.applyFormula(till.formula, inputs, dummySession, sessionResults);
     } else {
-      console.log('calculateTill: No formula, summing all session results');
-      // If no formula, sum all session results
-      calculatedValue = finalSessionResults.reduce((sum: number, s: CalculationResult) => sum + s.calculatedValue, 0);
+      // Sum all session results
+      totalResult = sessionResults.reduce((sum, result) => sum + result.calculatedValue, 0);
     }
-    console.log('calculateTill: Final calculated value:', calculatedValue);
+    
+    console.log('calculateTill: Total result:', totalResult);
+    
     return {
-      sessionId: till.id, // Use sessionId for compatibility
+      sessionId: till.id,
       name: till.name,
-      calculatedValue,
+      calculatedValue: totalResult,
       formula: till.formula,
-      subResults: finalSessionResults,
+      subResults: sessionResults,
     };
   }
 }
