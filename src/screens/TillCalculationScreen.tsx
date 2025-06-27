@@ -19,6 +19,13 @@ export default function TillCalculationScreen() {
     const load = async () => {
       setLoading(true);
       const userTills = await tillService.getTills();
+      console.log('TillCalculationScreen: Loaded tills from service:', userTills.length);
+      userTills.forEach(till => {
+        console.log('Till:', till.name, 'sessions:', till.sessions.length);
+        till.sessions.forEach(session => {
+          console.log('  Session:', session.name, 'subsessions:', session.subSessions?.length || 0);
+        });
+      });
       setTills(userTills);
       setLoading(false);
     };
@@ -84,7 +91,10 @@ export default function TillCalculationScreen() {
   // Render input fields for all sessions and sub-sessions in a till
   const renderInputFields = (till: Till): JSX.Element[] => {
     const fields: JSX.Element[] = [];
+    console.log('Rendering input fields for till:', till.name, 'with sessions:', till.sessions.length);
+    
     till.sessions.forEach((session: Session) => {
+      console.log('Processing session:', session.name, 'has formula:', !!session.formula);
       if (!session.formula) {
         fields.push(
           <View key={session.id} style={styles.inputField}>
@@ -101,6 +111,7 @@ export default function TillCalculationScreen() {
       }
       const addSubFields = (subs: SubSession[], parentId: string, level: number) => {
         subs.forEach((sub: SubSession) => {
+          console.log('Processing subsession:', sub.name, 'has formula:', !!sub.formula);
           const key = `${parentId}_${sub.id}`;
           if (!sub.formula) {
             fields.push(
@@ -123,6 +134,8 @@ export default function TillCalculationScreen() {
       };
       addSubFields(session.subSessions, session.id, 1);
     });
+    
+    console.log('Total input fields rendered:', fields.length);
     return fields;
   };
 
@@ -274,7 +287,22 @@ export default function TillCalculationScreen() {
       <Modal visible={showCalcModal} animationType="slide" onRequestClose={() => setShowCalcModal(false)}>
         <ScrollView style={{ flex: 1, backgroundColor: '#fff' }}>
           <Text style={{ fontSize: 20, fontWeight: 'bold', margin: 16 }}>Calculate Till: {selectedTill?.name}</Text>
-          {selectedTill && renderInputFields(selectedTill)}
+          {selectedTill && (
+            <>
+              {renderInputFields(selectedTill).length > 0 ? (
+                renderInputFields(selectedTill)
+              ) : (
+                <View style={{ margin: 16, padding: 16, backgroundColor: '#f8f9fa', borderRadius: 8 }}>
+                  <Text style={{ fontSize: 16, color: '#666', textAlign: 'center' }}>
+                    No input fields available. This till only contains formulas.
+                  </Text>
+                  <Text style={{ fontSize: 14, color: '#888', textAlign: 'center', marginTop: 8 }}>
+                    You can still calculate using the formulas defined in the sessions.
+                  </Text>
+                </View>
+              )}
+            </>
+          )}
           <View style={{ margin: 16 }}>
             <Button title="Calculate" onPress={handleCalculate} />
             <Button title="Cancel" color="#888" onPress={() => setShowCalcModal(false)} />

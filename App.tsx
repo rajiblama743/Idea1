@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import Navigation from '@/navigation';
 import { sqliteService } from '@/services/sqlite';
+import { tillService } from '@/services/tillService';
 import { colors } from '@/constants/colors';
 
 const LoadingScreen = () => (
@@ -37,6 +38,7 @@ export default function App() {
       try {
         // Initialize SQLite database
         await sqliteService.initDatabase();
+        await tillService.clearAllData();
         setDbInitialized(true);
       } catch (error: any) {
         console.error('App: Failed to initialize app:', error);

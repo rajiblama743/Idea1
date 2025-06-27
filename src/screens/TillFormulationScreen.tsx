@@ -196,23 +196,41 @@ const TillFormulationScreen: React.FC = () => {
   // Add state for sub-session dropdown
   const [showSubSessionDropdown, setShowSubSessionDropdown] = useState<number | -1>(-1);
 
-  const loadSessions = async () => {
+  const loadTills = async () => {
+    console.log('TillFormulationScreen.loadTills(): starting to load tills');
     if (!currentUser) {
-      setLoading(false);
-      return;
+      // For guest users, load tills from service
+      try {
+        const userTills = await tillService.getTills();
+        console.log('TillFormulationScreen.loadTills(): loaded tills for guest:', userTills.length);
+        console.log('TillFormulationScreen.loadTills(): loaded tills:', userTills.map(t => ({ id: t.id, name: t.name })));
+        
+        // Remove duplicates based on ID
+        const uniqueTills = userTills.filter((till, index, self) => 
+          index === self.findIndex(t => t.id === till.id)
+        );
+        
+        if (uniqueTills.length !== userTills.length) {
+          console.log('TillFormulationScreen.loadTills(): removed duplicates, original:', userTills.length, 'unique:', uniqueTills.length);
+        }
+        
+        setTills(uniqueTills);
+      } catch (error) {
+        console.error('Error loading tills:', error);
+        setTills([]);
+      }
+    } else {
+      // For signed-in users, load tills from service
+      try {
+        const userTills = await tillService.getTills();
+        console.log('TillFormulationScreen.loadTills(): loaded tills for user:', userTills.length);
+        setTills(userTills);
+      } catch (error) {
+        console.error('Error loading tills:', error);
+        setTills([]);
+      }
     }
-    
-    try {
-      setLoading(true);
-      const userSessions = await tillService.getSessions(currentUser.id);
-      // Assuming you want to update the store with the loaded sessions
-      setTills(userSessions);
-    } catch (error) {
-      console.error('Error loading sessions:', error);
-      Alert.alert('Error', 'Failed to load sessions');
-    } finally {
-      setLoading(false);
-    }
+    setLoading(false);
   };
 
   const createTemporarySession = (name: string, description?: string): Session => {
@@ -267,7 +285,7 @@ const TillFormulationScreen: React.FC = () => {
         setSessionName('');
         setSessionDescription('');
         setShowSessionModal(false);
-        loadSessions();
+        loadTills();
         Alert.alert('Success', 'Session created and saved successfully!');
       } catch (error) {
         console.error('Error creating session:', error);
@@ -314,7 +332,7 @@ const TillFormulationScreen: React.FC = () => {
         setSubSessionName('');
         setSubSessionDescription('');
         setShowSubSessionModal(false);
-        loadSessions();
+        loadTills();
         Alert.alert('Success', 'Sub-session created and saved successfully!');
       } catch (error) {
         console.error('Error creating sub-session:', error);
@@ -406,7 +424,7 @@ const TillFormulationScreen: React.FC = () => {
 
       await tillService.setFormula(selectedSessionId, selectedSubSessionId || null, formula);
       setShowFormulaModal(false);
-      loadSessions();
+      loadTills();
       Alert.alert('Success', 'Formula created successfully!');
     } catch (error) {
       console.error('Error creating formula:', error);
@@ -574,28 +592,71 @@ const TillFormulationScreen: React.FC = () => {
     </SwipeableItem>
   );
 
-  const handleCreateTill = () => {
+  const handleCreateTill = async () => {
     if (!tillName.trim()) {
       Alert.alert('Error', 'Please enter a till name');
       return;
     }
-    const newTill: Till = {
-      id: `till_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    
+    // Check if a till with this name already exists
+    const existingTill = tills.find(till => till.name.toLowerCase() === tillName.trim().toLowerCase());
+    if (existingTill) {
+      Alert.alert('Error', 'A till with this name already exists');
+      return;
+    }
+    
+    console.log('TillFormulationScreen.handleCreateTill(): creating till with name:', tillName.trim());
+    console.log('TillFormulationScreen.handleCreateTill(): current tills count before:', tills.length);
+    
+    const newTillData = {
       name: tillName.trim(),
       description: tillDescription.trim() || undefined,
       sessions: [],
-      createdAt: new Date(),
-      updatedAt: new Date(),
     };
-    setTills(prev => [...prev, newTill]);
-    setTillName('');
-    setTillDescription('');
-    setShowTillModal(false);
-    Alert.alert('Success', 'Till created successfully!');
+    
+    try {
+      // Save the till to the service (let service generate the ID)
+      const newTill = await tillService.createTill(newTillData);
+      console.log('TillFormulationScreen.handleCreateTill(): service returned till with id:', newTill.id);
+      
+      // Update local state with the till returned from service
+      setTills(prev => {
+        console.log('TillFormulationScreen.handleCreateTill(): updating local state, prev count:', prev.length);
+        console.log('TillFormulationScreen.handleCreateTill(): prev tills:', prev.map(t => ({ id: t.id, name: t.name })));
+        
+        // Check if this till already exists in the array
+        const existingTill = prev.find(t => t.id === newTill.id);
+        if (existingTill) {
+          console.log('TillFormulationScreen.handleCreateTill(): till already exists, not adding duplicate');
+          return prev;
+        }
+        
+        const updated = [...prev, newTill];
+        console.log('TillFormulationScreen.handleCreateTill(): new count:', updated.length);
+        console.log('TillFormulationScreen.handleCreateTill(): new tills:', updated.map(t => ({ id: t.id, name: t.name })));
+        return updated;
+      });
+      
+      setTillName('');
+      setTillDescription('');
+      setShowTillModal(false);
+      Alert.alert('Success', 'Till created successfully!');
+    } catch (error) {
+      console.error('Error creating till:', error);
+      Alert.alert('Error', 'Failed to create till');
+    }
   };
 
-  const handleTillUpdate = (updatedTill: Till) => {
-    setTills(prev => prev.map(till => till.id === updatedTill.id ? updatedTill : till));
+  const handleTillUpdate = async (updatedTill: Till) => {
+    try {
+      // Save the updated till to the service
+      await tillService.updateTill(updatedTill.id, updatedTill);
+      // Update local state
+      setTills(prev => prev.map(till => till.id === updatedTill.id ? updatedTill : till));
+    } catch (error) {
+      console.error('Error updating till:', error);
+      Alert.alert('Error', 'Failed to update till');
+    }
   };
 
   const handleEditTill = (till: Till) => {
@@ -616,11 +677,19 @@ const TillFormulationScreen: React.FC = () => {
     setEditTillDescription('');
   };
 
-  const handleDeleteTill = (tillId: string) => {
+  const handleDeleteTill = async (tillId: string) => {
     Alert.alert('Delete Till', 'Are you sure you want to delete this till and all its sessions?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => {
-        setTills(prev => prev.filter(till => till.id !== tillId));
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        try {
+          // Delete the till from the service
+          await tillService.deleteTill(tillId);
+          // Update local state
+          setTills(prev => prev.filter(till => till.id !== tillId));
+        } catch (error) {
+          console.error('Error deleting till:', error);
+          Alert.alert('Error', 'Failed to delete till');
+        }
       }},
     ]);
   };
@@ -676,7 +745,7 @@ const TillFormulationScreen: React.FC = () => {
   }
 
   useEffect(() => {
-    loadSessions();
+    loadTills();
   }, []);
 
   if (loading) {
@@ -716,36 +785,39 @@ const TillFormulationScreen: React.FC = () => {
           </View>
         ) : (
           <View style={styles.tillsList}>
-            {tills.map(till => (
-              <TouchableOpacity key={till.id} onPress={() => navigation.navigate('TillDetail', { till, onTillUpdate: handleTillUpdate })} activeOpacity={0.8}>
-                <View style={{ marginBottom: 24, backgroundColor: '#f8f8ff', borderRadius: 10, padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 18, fontWeight: 'bold', color: colors.primary }}>{till.name}</Text>
-                    {till.description ? (
-                      <Text style={{ color: '#888', marginBottom: 6 }}>{till.description}</Text>
-                    ) : null}
-                    {till.formula && (
-                      <Text style={{ color: '#4F8EF7', marginTop: 4, fontSize: 13 }}>
-                        Formula: {till.formula.operands.map((op, i) =>
-                          `${i > 0 ? ` ${op.operation === 'add' ? '+' : op.operation === 'subtract' ? '-' : op.operation === 'multiply' ? '\u00d7' : '\u00f7'} ` : ''}${getOperandDisplayName(op, till)}`
-                        ).join('')}
-                      </Text>
-                    )}
+            {tills.map((till, index) => {
+              console.log(`Rendering till ${index}:`, till.id, till.name);
+              return (
+                <TouchableOpacity key={`${till.id}_${index}`} onPress={() => navigation.navigate('TillDetail', { till, onTillUpdate: handleTillUpdate })} activeOpacity={0.8}>
+                  <View style={{ marginBottom: 24, backgroundColor: '#f8f8ff', borderRadius: 10, padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 18, fontWeight: 'bold', color: colors.primary }}>{till.name}</Text>
+                      {till.description ? (
+                        <Text style={{ color: '#888', marginBottom: 6 }}>{till.description}</Text>
+                      ) : null}
+                      {till.formula && (
+                        <Text style={{ color: '#4F8EF7', marginTop: 4, fontSize: 13 }}>
+                          Formula: {till.formula.operands.map((op, i) =>
+                            `${i > 0 ? ` ${op.operation === 'add' ? '+' : op.operation === 'subtract' ? '-' : op.operation === 'multiply' ? '\u00d7' : '\u00f7'} ` : ''}${getOperandDisplayName(op, till)}`
+                          ).join('')}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <TouchableOpacity onPress={() => handleEditTill(till)}>
+                        <Ionicons name="create-outline" size={20} color="#4F8EF7" />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => handleOpenFormulaModal(till.id, till.formula)}>
+                        <Ionicons name="calculator-outline" size={20} color="#2a2a6a" />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => handleDeleteTill(till.id)}>
+                        <Ionicons name="trash-outline" size={20} color="#e74c3c" />
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
-                    <TouchableOpacity onPress={() => handleEditTill(till)}>
-                      <Ionicons name="create-outline" size={20} color="#4F8EF7" />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => handleOpenFormulaModal(till.id, till.formula)}>
-                      <Ionicons name="calculator-outline" size={20} color="#2a2a6a" />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => handleDeleteTill(till.id)}>
-                      <Ionicons name="trash-outline" size={20} color="#e74c3c" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            ))}
+                </TouchableOpacity>
+              );
+            })}
           </View>
         )}
       </ScrollView>

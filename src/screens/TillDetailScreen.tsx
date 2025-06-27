@@ -68,7 +68,7 @@ const TillDetailScreen: React.FC = () => {
 
   const navigation = useNavigation();
 
-  const handleCreateSession = () => {
+  const handleCreateSession = async () => {
     if (!sessionName.trim()) {
       Alert.alert('Error', 'Please enter a session name');
       return;
@@ -86,7 +86,19 @@ const TillDetailScreen: React.FC = () => {
     };
     const updatedTill = { ...till, sessions: [...till.sessions, newSession] };
     setTill(updatedTill);
-    onTillUpdate && onTillUpdate(updatedTill);
+    
+    // Save to service
+    if (onTillUpdate) {
+      try {
+        await onTillUpdate(updatedTill);
+        console.log('Session created and till saved to service:', updatedTill.name, 'sessions:', updatedTill.sessions.length);
+      } catch (error) {
+        console.error('Error saving till to service:', error);
+        Alert.alert('Error', 'Failed to save session');
+        return;
+      }
+    }
+    
     setSessionName('');
     setSessionDescription('');
     setShowSessionModal(false);
@@ -100,7 +112,7 @@ const TillDetailScreen: React.FC = () => {
     setShowSubSessionModal(true);
   };
 
-  const handleCreateSubSession = () => {
+  const handleCreateSubSession = async () => {
     if (!subSessionName.trim() || !selectedSessionId) {
       Alert.alert('Error', 'Please enter a sub-session name');
       return;
@@ -121,7 +133,19 @@ const TillDetailScreen: React.FC = () => {
       ),
     };
     setTill(updatedTill);
-    onTillUpdate && onTillUpdate(updatedTill);
+    
+    // Save to service
+    if (onTillUpdate) {
+      try {
+        await onTillUpdate(updatedTill);
+        console.log('Sub-session created and till saved to service:', updatedTill.name, 'sessions:', updatedTill.sessions.length);
+      } catch (error) {
+        console.error('Error saving till to service:', error);
+        Alert.alert('Error', 'Failed to save sub-session');
+        return;
+      }
+    }
+    
     setShowSubSessionModal(false);
     setSubSessionName('');
     setSubSessionDescription('');

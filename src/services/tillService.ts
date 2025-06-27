@@ -8,6 +8,15 @@ const mockCalculations: Calculation[] = [];
 const mockTills: Till[] = [];
 
 class TillService {
+  // Clear all data (useful for testing or resetting)
+  clearAllData() {
+    console.log('tillService.clearAllData(): clearing all data');
+    mockSessions.length = 0;
+    mockCalculations.length = 0;
+    mockTills.length = 0;
+    console.log('tillService.clearAllData(): all data cleared');
+  }
+
   // Session Management
   async createSession(session: Omit<Session, 'id' | 'createdAt' | 'updatedAt' | 'isSynced'>): Promise<Session> {
     const newSession: Session = {
@@ -321,17 +330,30 @@ class TillService {
 
   // Till Management
   async createTill(till: Omit<Till, 'id' | 'createdAt' | 'updatedAt'>): Promise<Till> {
+    console.log('tillService.createTill(): creating till with name:', till.name);
+    console.log('tillService.createTill(): current mockTills length before:', mockTills.length);
+    
     const newTill: Till = {
       ...till,
       id: `till_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
+    
+    console.log('tillService.createTill(): new till id:', newTill.id);
     mockTills.push(newTill);
+    
+    console.log('tillService.createTill(): current mockTills length after:', mockTills.length);
+    console.log('tillService.createTill(): all tills:', mockTills.map(t => ({ id: t.id, name: t.name })));
+    
     return newTill;
   }
 
   async getTills(): Promise<Till[]> {
+    console.log('tillService.getTills(): mockTills length:', mockTills.length);
+    mockTills.forEach((till, index) => {
+      console.log(`  Till ${index}:`, till.name, 'sessions:', till.sessions.length);
+    });
     return mockTills;
   }
 
@@ -340,9 +362,20 @@ class TillService {
   }
 
   async updateTill(tillId: string, updates: Partial<Till>): Promise<Till | null> {
+    console.log('tillService.updateTill(): updating tillId:', tillId);
+    console.log('tillService.updateTill(): updates:', updates);
+    console.log('tillService.updateTill(): current mockTills length:', mockTills.length);
+    
     const idx = mockTills.findIndex(t => t.id === tillId);
-    if (idx === -1) return null;
+    console.log('tillService.updateTill(): found till at index:', idx);
+    
+    if (idx === -1) {
+      console.log('tillService.updateTill(): till not found!');
+      return null;
+    }
+    
     mockTills[idx] = { ...mockTills[idx], ...updates, updatedAt: new Date() };
+    console.log('tillService.updateTill(): updated till sessions:', mockTills[idx].sessions.length);
     return mockTills[idx];
   }
 
